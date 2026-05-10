@@ -6,8 +6,9 @@ import { isValidAlias } from "@/lib/shortcode";
 export async function GET(request, { params }) {
   try {
     const { id } = await params;
-    const db = getDb();
-    const link = db.prepare("SELECT * FROM links WHERE id = ?").get(id);
+    const db = await getDb();
+    const result = await db.query("SELECT * FROM links WHERE id = $1", [id]);
+    const link = result.rows[0];
 
     if (!link) {
       return NextResponse.json({ error: "Link not found" }, { status: 404 });
@@ -26,11 +27,12 @@ export async function GET(request, { params }) {
 export async function PUT(request, { params }) {
   try {
     const { id } = await params;
-    const db = getDb();
+    const db = await getDb();
     const body = await request.json();
     const { customAlias, expiresAt, isActive } = body;
 
-    const link = db.prepare("SELECT * FROM links WHERE id = ?").get(id);
+    const linkResult = await db.query("SELECT * FROM links WHERE id = $1", [id]);
+    const link = linkResult.rows[0];
     if (!link) {
       return NextResponse.json({ error: "Link not found" }, { status: 404 });
     }
@@ -43,10 +45,11 @@ export async function PUT(request, { params }) {
           { status: 400 }
         );
       }
-      const existing = db
-        .prepare("SELECT id FROM links WHERE short_code = ? AND id != ?")
-        .get(customAlias, id);
-      if (existing) {
+      const existing = await db.query(
+        "SELECT id FROM links WHERE short_code = $1 AND id != $2",
+        [customAlias, id]
+      );
+      if (existing.rows[0]) {
         return NextResponse.json(
           { error: "Alias already taken" },
           { status: 409 }
@@ -56,32 +59,31 @@ export async function PUT(request, { params }) {
       // Invalidate old cache entry
       cache.invalidate(link.short_code);
 
-      db.prepare("UPDATE links SET short_code = ?, custom_alias = ? WHERE id = ?").run(
-        customAlias,
-        customAlias,
-        id
+      await db.query(
+        "UPDATE links SET short_code = $1, custom_alias = $2 WHERE id = $3",
+        [customAlias, customAlias, id]
       );
     }
 
     if (expiresAt !== undefined) {
-      db.prepare("UPDATE links SET expires_at = ? WHERE id = ?").run(
+      await db.query("UPDATE links SET expires_at = $1 WHERE id = $2", [
         expiresAt,
-        id
-      );
+        id,
+      ]);
     }
 
     if (isActive !== undefined) {
-      db.prepare("UPDATE links SET is_active = ? WHERE id = ?").run(
+      await db.query("UPDATE links SET is_active = $1 WHERE id = $2", [
         isActive ? 1 : 0,
-        id
-      );
+        id,
+      ]);
       if (!isActive) {
         cache.invalidate(link.short_code);
       }
     }
 
-    const updated = db.prepare("SELECT * FROM links WHERE id = ?").get(id);
-    return NextResponse.json({ link: updated });
+    const updatedResult = await db.query("SELECT * FROM links WHERE id = $1", [id]);
+    return NextResponse.json({ link: updatedResult.rows[0] });
   } catch (error) {
     console.error("Update link error:", error);
     return NextResponse.json(
@@ -94,9 +96,10 @@ export async function PUT(request, { params }) {
 export async function DELETE(request, { params }) {
   try {
     const { id } = await params;
-    const db = getDb();
+    const db = await getDb();
 
-    const link = db.prepare("SELECT * FROM links WHERE id = ?").get(id);
+    const result = await db.query("SELECT * FROM links WHERE id = $1", [id]);
+    const link = result.rows[0];
     if (!link) {
       return NextResponse.json({ error: "Link not found" }, { status: 404 });
     }
@@ -105,7 +108,7 @@ export async function DELETE(request, { params }) {
     cache.invalidate(link.short_code);
 
     // Delete link and its clicks (CASCADE)
-    db.prepare("DELETE FROM links WHERE id = ?").run(id);
+    await db.query("DELETE FROM links WHERE id = $1", [id]);
 
     return NextResponse.json({ message: "Link deleted successfully" });
   } catch (error) {

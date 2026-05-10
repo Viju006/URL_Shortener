@@ -1,54 +1,62 @@
-import Database from "better-sqlite3";
-import path from "path";
+import pg from "pg";
 
-let db;
+const { Pool } = pg;
 
-export function getDb() {
-  if (!db) {
-    const dbPath = path.join(process.cwd(), "data", "urlshortener.db");
+let pool;
+let initialized = false;
 
-    // Ensure data directory exists
-    const fs = require("fs");
-    const dir = path.dirname(dbPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    db = new Database(dbPath);
-    db.pragma("journal_mode = WAL");
-    db.pragma("foreign_keys = ON");
-    initSchema(db);
-  }
-  return db;
-}
-
-function initSchema(db) {
-  db.exec(`
+async function initSchema(pool) {
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS links (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       short_code TEXT UNIQUE NOT NULL,
       original_url TEXT NOT NULL,
       custom_alias TEXT,
-      expires_at TEXT,
+      expires_at TIMESTAMPTZ,
       is_active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT (datetime('now')),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
       click_count INTEGER DEFAULT 0
-    );
+    )
+  `);
 
-    CREATE INDEX IF NOT EXISTS idx_links_short_code ON links(short_code);
-    CREATE INDEX IF NOT EXISTS idx_links_expires_at ON links(expires_at);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_links_short_code ON links(short_code)`
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_links_expires_at ON links(expires_at)`
+  );
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS clicks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      link_id INTEGER NOT NULL,
-      clicked_at TEXT DEFAULT (datetime('now')),
+      id SERIAL PRIMARY KEY,
+      link_id INTEGER NOT NULL REFERENCES links(id) ON DELETE CASCADE,
+      clicked_at TIMESTAMPTZ DEFAULT NOW(),
       referrer TEXT,
       country TEXT,
-      user_agent TEXT,
-      FOREIGN KEY (link_id) REFERENCES links(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_clicks_link_id ON clicks(link_id);
-    CREATE INDEX IF NOT EXISTS idx_clicks_clicked_at ON clicks(clicked_at);
+      user_agent TEXT
+    )
   `);
+
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_clicks_link_id ON clicks(link_id)`
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_clicks_clicked_at ON clicks(clicked_at)`
+  );
+}
+
+export async function getDb() {
+  if (!pool) {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+    });
+  }
+
+  if (!initialized) {
+    await initSchema(pool);
+    initialized = true;
+  }
+
+  return pool;
 }

@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 
 export async function GET(request) {
   try {
-    const db = getDb();
+    const db = await getDb();
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get("page") || "1", 10);
     const limit = parseInt(searchParams.get("limit") || "20", 10);
@@ -13,24 +13,30 @@ export async function GET(request) {
     let links, total;
 
     if (search) {
-      links = db
-        .prepare(
-          `SELECT * FROM links
-           WHERE (original_url LIKE ? OR short_code LIKE ? OR custom_alias LIKE ?)
-           ORDER BY created_at DESC LIMIT ? OFFSET ?`
-        )
-        .all(`%${search}%`, `%${search}%`, `%${search}%`, limit, offset);
-      total = db
-        .prepare(
-          `SELECT COUNT(*) as count FROM links
-           WHERE (original_url LIKE ? OR short_code LIKE ? OR custom_alias LIKE ?)`
-        )
-        .get(`%${search}%`, `%${search}%`, `%${search}%`).count;
+      const searchPattern = `%${search}%`;
+      const linksResult = await db.query(
+        `SELECT * FROM links
+         WHERE (original_url LIKE $1 OR short_code LIKE $2 OR custom_alias LIKE $3)
+         ORDER BY created_at DESC LIMIT $4 OFFSET $5`,
+        [searchPattern, searchPattern, searchPattern, limit, offset]
+      );
+      links = linksResult.rows;
+
+      const totalResult = await db.query(
+        `SELECT COUNT(*) as count FROM links
+         WHERE (original_url LIKE $1 OR short_code LIKE $2 OR custom_alias LIKE $3)`,
+        [searchPattern, searchPattern, searchPattern]
+      );
+      total = parseInt(totalResult.rows[0].count, 10);
     } else {
-      links = db
-        .prepare("SELECT * FROM links ORDER BY created_at DESC LIMIT ? OFFSET ?")
-        .all(limit, offset);
-      total = db.prepare("SELECT COUNT(*) as count FROM links").get().count;
+      const linksResult = await db.query(
+        "SELECT * FROM links ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+        [limit, offset]
+      );
+      links = linksResult.rows;
+
+      const totalResult = await db.query("SELECT COUNT(*) as count FROM links");
+      total = parseInt(totalResult.rows[0].count, 10);
     }
 
     return NextResponse.json({

@@ -4,13 +4,16 @@ A lightweight, premium URL shortening service built with Next.js. Transform long
 
 ## Architecture
 
-![URL Shortener Architecture](url_shortener_architecture.svg)
+![URL Shortener Architecture](public/url_shortener_architecture.svg)
 
 ## Screenshots
 
 ![Homepage](public/screenshots/screenshot-home.png)
+
 ![Features](public/screenshots/screenshot-home-features.png)
+
 ![Link Generated](public/screenshots/screenshot-result.png)
+
 ![Dashboard](public/screenshots/screenshot-dashboard.png)
 
 ## Features
@@ -28,7 +31,7 @@ A lightweight, premium URL shortening service built with Next.js. Transform long
 |-------|-----------|
 | Frontend | Next.js 16 (React 19), App Router |
 | Styling | Vanilla CSS (dark mode, glassmorphism) |
-| Database | SQLite via better-sqlite3 |
+| Database | Supabase (PostgreSQL) via node-postgres |
 | Cache | In-memory LRU (Redis stand-in for v1) |
 | Font | Inter (Google Fonts) |
 
@@ -60,7 +63,7 @@ src/
 │       ├── links/[id]/route.js # PUT/DELETE: manage link
 │       └── analytics/[code]/route.js # GET: click analytics
 ├── lib/
-│   ├── db.js                  # SQLite connection & schema
+│   ├── db.js                  # PostgreSQL connection & schema
 │   ├── cache.js               # LRU cache (Redis substitute)
 │   ├── shortcode.js           # Base-62 short code generation
 │   ├── validators.js          # URL validation

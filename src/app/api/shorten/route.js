@@ -41,7 +41,7 @@ export async function POST(request) {
     }
 
     const normalizedUrl = normalizeUrl(url);
-    const db = getDb();
+    const db = await getDb();
 
     // If custom alias provided, validate it (FR-04)
     let shortCode;
@@ -57,10 +57,11 @@ export async function POST(request) {
       }
 
       // Check if alias already exists
-      const existing = db
-        .prepare("SELECT id FROM links WHERE short_code = ?")
-        .get(customAlias);
-      if (existing) {
+      const existing = await db.query(
+        "SELECT id FROM links WHERE short_code = $1",
+        [customAlias]
+      );
+      if (existing.rows[0]) {
         return NextResponse.json(
           { error: "This alias is already taken. Please choose another." },
           { status: 409 }
@@ -78,25 +79,21 @@ export async function POST(request) {
     }
 
     // Insert link
-    const result = db
-      .prepare(
-        `INSERT INTO links (short_code, original_url, custom_alias, expires_at)
-       VALUES (?, ?, ?, ?)`
-      )
-      .run(
-        shortCode || "placeholder",
-        normalizedUrl,
-        customAlias || null,
-        expiryDate
-      );
+    const result = await db.query(
+      `INSERT INTO links (short_code, original_url, custom_alias, expires_at)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [shortCode || "placeholder", normalizedUrl, customAlias || null, expiryDate]
+    );
+
+    const newId = result.rows[0].id;
 
     // If no custom alias, generate short code from ID (FR-01)
     if (!shortCode) {
-      shortCode = generateShortCode(result.lastInsertRowid);
-      db.prepare("UPDATE links SET short_code = ? WHERE id = ?").run(
+      shortCode = generateShortCode(newId);
+      await db.query("UPDATE links SET short_code = $1 WHERE id = $2", [
         shortCode,
-        result.lastInsertRowid
-      );
+        newId,
+      ]);
     }
 
     // Populate cache

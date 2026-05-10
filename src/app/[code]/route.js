@@ -5,7 +5,7 @@ import { cache } from "@/lib/cache";
 export async function GET(request, { params }) {
   try {
     const { code } = await params;
-    const db = getDb();
+    const db = await getDb();
 
     // 1. Check cache first (hot path)
     const cachedUrl = cache.get(code);
@@ -16,9 +16,11 @@ export async function GET(request, { params }) {
     }
 
     // 2. Cache miss → check database
-    const link = db
-      .prepare("SELECT * FROM links WHERE short_code = ? AND is_active = 1")
-      .get(code);
+    const result = await db.query(
+      "SELECT * FROM links WHERE short_code = $1 AND is_active = 1",
+      [code]
+    );
+    const link = result.rows[0];
 
     if (!link) {
       // Return a nice 404 page
@@ -53,11 +55,13 @@ export async function GET(request, { params }) {
   }
 }
 
-function logClick(db, code, request) {
+async function logClick(db, code, request) {
   try {
-    const link = db
-      .prepare("SELECT id FROM links WHERE short_code = ?")
-      .get(code);
+    const result = await db.query(
+      "SELECT id FROM links WHERE short_code = $1",
+      [code]
+    );
+    const link = result.rows[0];
     if (!link) return;
 
     const referrer = request.headers.get("referer") || "";
@@ -65,14 +69,16 @@ function logClick(db, code, request) {
     // Country would come from a GeoIP service; using placeholder for now
     const country = request.headers.get("cf-ipcountry") || "Unknown";
 
-    db.prepare(
-      `INSERT INTO clicks (link_id, referrer, country, user_agent) VALUES (?, ?, ?, ?)`
-    ).run(link.id, referrer, country, userAgent);
+    await db.query(
+      `INSERT INTO clicks (link_id, referrer, country, user_agent) VALUES ($1, $2, $3, $4)`,
+      [link.id, referrer, country, userAgent]
+    );
 
     // Update click count
-    db.prepare(
-      "UPDATE links SET click_count = click_count + 1 WHERE id = ?"
-    ).run(link.id);
+    await db.query(
+      "UPDATE links SET click_count = click_count + 1 WHERE id = $1",
+      [link.id]
+    );
   } catch (err) {
     console.error("Click logging error:", err);
   }
